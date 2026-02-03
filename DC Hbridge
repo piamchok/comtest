@@ -1,0 +1,139 @@
+#include <WiFi.h>
+#include <MQTT.h>
+
+// --- 1. Config (แก้ไขข้อมูล WiFi ตรงนี้) ---
+const char ssid[] = "YOUR_WIFI_SSID";
+const char pass[] = "YOUR_WIFI_PASS";
+
+const char mqtt_broker[] = "broker.hivemq.com";
+const char mqtt_client_id[] = "esp32_dc_range_002"; // เปลี่ยนเลขอย่าให้ซ้ำ
+String topic_prefix = "my_exam_user1"; // <-- เปลี่ยนเป็นชื่อของคุณ
+
+// --- 2. Pins ---
+const int LDR_PIN = 34;   // Analog Input
+const int IN1 = 26;       // Motor Driver
+const int IN2 = 27;       // Motor Driver
+
+// --- 3. Variables ---
+WiFiClient net;
+MQTTClient client;
+unsigned long lastMillis = 0;
+int ldrValue = 0;
+String currentStatus = "Stop"; // เก็บสถานะปัจจุบันเพื่อส่ง MQTT
+
+// --- Helper Functions ---
+void controlMotor(String direction) {
+  // Logic ควบคุม H-Bridge
+  if (direction == "Clockwise") {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+  } else if (direction == "Counter Clockwise") {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+  } else { // Stop
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+  }
+}
+
+void connect() {
+  Serial.print("Checking WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print("."); delay(1000);
+  }
+
+  Serial.print("\nMQTT Connecting...");
+  while (!client.connect(mqtt_client_id)) {
+    Serial.print("."); delay(1000);
+  }
+  Serial.println("\nMQTT Connected!");
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(LDR_PIN, INPUT);
+
+  // เริ่มต้นให้หยุด
+  controlMotor("Stop");
+
+  WiFi.begin(ssid, pass);
+  client.begin(mqtt_broker, 1883, net);
+  // ข้อนี้ไม่มีการรับค่าจากปุ่ม (Subscribe) จึงไม่ต้องมี messageReceived หรือ subscribe
+
+  connect();
+}
+
+void loop() {
+  client.loop();
+  if (!client.connected()) connect();
+
+  // ทำงานทุกๆ 1 วินาที (อ่านค่าและประมวลผล)
+  if (millis() - lastMillis > 1000) {
+    lastMillis = millis();
+
+    // 1. อ่านค่า LDR
+    ldrValue = analogRead(LDR_PIN);
+    
+    // หมายเหตุ: ค่า Analog ของ ESP32 ปกติคือ 0-4095 
+    // ถ้าโจทย์ไม่ได้สั่งให้ Map เป็น 0-1023 ก็ใช้ค่าดิบได้เลย 
+    // (แต่ถ้าแสงในห้องคุณสว่างเกิน 800 อาจจะต้องหาอะไรบังเพื่อให้ทดสอบเงื่อนไขได้ครบ)
+    
+    Serial.print("LDR Value: "); Serial.println(ldrValue);
+
+    // 2. Logic ตามโจทย์
+    String newStatus = "Stop"; // ค่า Default คือหยุด
+
+    // เงื่อนไข: ทำงานเฉพาะช่วง > 200 และ < 800
+    if (ldrValue > 200 && ldrValue < 800) {
+      if (ldrValue <= 500) {
+        // ช่วง 201 - 500 -> ทวนเข็ม
+        newStatus = "Counter Clockwise";
+      } else {
+        // ช่วง 501 - 799 -> ตามเข็ม
+        newStatus = "Clockwise";
+      }
+    } else {
+      // น้อยกว่าหรือเท่ากับ 200 หรือ มากกว่าหรือเท่ากับ 800 -> หยุด
+      newStatus = "Stop";
+    }
+
+    // 3. สั่งงาน Motor
+    controlMotor(newStatus);
+
+    // 4. ส่งค่าขึ้น MQTT Dashboard
+    // ส่ง LDR
+    client.publish(topic_prefix + "/ldr", String(ldrValue));
+    
+    // ส่งสถานะ Motor (Text)
+    // เช็คว่าสถานะเปลี่ยนไหม หรือจะส่งตลอดก็ได้ (ส่งตลอดเพื่อให้ Dashboard อัปเดตชัวร์ๆ)
+    client.publish(topic_prefix + "/motor/status", newStatus);
+    
+    Serial.print("Status: "); Serial.println(newStatus);
+  }
+}
+
+3. การตั้งค่า MQTT Dashboard (MQTT Tiles)
+ข้อนี้เน้นการแสดงผล (Monitoring) เป็นหลักครับ
+
+Tile 1: แสดงค่าแสง (Text)
+Label: LDR Value
+
+Topic: my_exam_user1/ldr (เปลี่ยนชื่อ user ให้ตรงกับโค้ด)
+
+Result: จะแสดงตัวเลขค่าแสง
+
+Tile 2: สถานะการหมุน (Text)
+Label: Motor Status
+
+Topic: my_exam_user1/motor/status
+
+Result: จะขึ้นข้อความภาษาอังกฤษตามโจทย์เป๊ะๆ คือ
+
+Clockwise
+
+Counter Clockwise
+
+Stop
