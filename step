@@ -116,3 +116,29 @@ void loop() {
     client.publish(topic_prefix + "/angle", String(currentAngle));
   }
 }
+
+3. การตั้งค่า MQTT Dashboard (MQTT Tiles)
+ต้องสร้าง Tiles ทั้งหมด 3 อัน ตามโจทย์ข้อ 4 ดังนี้ครับ:
+
+Tile 1: แสดงค่าแสง (Text)
+Label: LDR Value
+
+Topic: my_exam_user1/ldr (แก้ชื่อ user ให้ตรงกับโค้ด)
+
+ผลลัพธ์: จะโชว์ค่าตัวเลขในช่วง 0-1023
+
+Tile 2: แสดงองศาปัจจุบัน (Text)
+Label: Stepper Angle
+
+Topic: my_exam_user1/angle
+
+ผลลัพธ์: จะโชว์ค่าองศาที่เพิ่มขึ้นเรื่อยๆ เช่น 360.5, 720.0 (ถ้าหมุนหลายรอบเลขจะเยอะขึ้นเรื่อยๆ ตามโจทย์ "ค่าสะสม")
+
+Tile 3: ปุ่มรีเซ็ตองศา (Button)
+Label: Reset Angle
+
+Topic: my_exam_user1/angle/reset
+
+Payload: reset (หรือใส่อะไรก็ได้ เพราะโค้ดเช็คแค่ว่ามีข้อความเข้ามา)
+
+Icon: (รูปถังขยะ หรือรูปลูกศรวน)
